@@ -1,53 +1,32 @@
-import express from "express";
-import http from "http";
-import { Server } from "socket.io";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import path from "path";
-import Document from "./models/Document.js";
+// server.js
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const path = require("path");
 
-dotenv.config();
 const app = express();
-app.use(express.json());
-app.use((req,res,next)=>{res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Headers','*');next();});
-
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server);
 
-const MONGO = process.env.MONGO_URI || "mongodb://localhost:27017/realtime-collab";
-mongoose.connect(MONGO).then(()=>console.log("Mongo connected")).catch(err=>console.error(err));
+// Serve static files from /public
+app.use(express.static(path.join(__dirname, "public")));
+
+const PORT = process.env.PORT || 10000;
 
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
+  console.log(`🟢 User connected: ${socket.id}`);
 
-  socket.on("join-document", async (documentId) => {
-    if (!documentId) return;
-    socket.join(documentId);
-    console.log("Joined room:", documentId);
+  // Listen for chat messages
+  socket.on("message", (msg) => {
+    console.log(`📩 ${socket.id}: ${msg}`);
+    socket.broadcast.emit("message", msg); // send to everyone except sender
+  });
 
-    const document = await findOrCreateDocument(documentId);
-    socket.emit("load-document", document.data);
-
-    socket.on("send-changes", (delta) => {
-      socket.broadcast.to(documentId).emit("receive-changes", delta);
-    });
-
-    socket.on("save-document", async (data) => {
-      await Document.findByIdAndUpdate(documentId, { data }, { upsert: true });
-    });
-
-    socket.on("disconnect", () => {
-      // optionally handle disconnect
-    });
+  socket.on("disconnect", () => {
+    console.log(`🔴 User disconnected: ${socket.id}`);
   });
 });
 
-async function findOrCreateDocument(id) {
-  if (!id) return;
-  let doc = await Document.findById(id);
-  if (doc) return doc;
-  return await Document.create({ _id: id, data: { ops: [{ insert: "\n" }] } });
-}
-
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, ()=>console.log("Server listening on", PORT));
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
